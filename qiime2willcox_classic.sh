@@ -175,6 +175,12 @@ qiime feature-table filter-features \
   --i-table cprhd-denovo-filtered-table.qza \
   --p-min-frequency 11 \
   --o-filtered-table cprhd-denovo-filtered-table-filtered
+  
+#remove low frequency sequences
+qiime feature-table filter-seqs \
+	--i-data cprhd-denovo_seqs.qza \
+	--i-table cprhd-denovo-filtered-table-filtered.qza \
+	--o cprhd-denovo_seqs.qza
 
 qiime feature-table summarize \
 	--i-table cprhd-denovo-filtered-table-filtered.qza \
