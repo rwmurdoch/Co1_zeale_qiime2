@@ -35,3 +35,7 @@ steps with (X) produce a log or visualization file
 10. export OTU sequence list and OTU tables <- these are the primary results, intended to be sent to taxonomic classification via BOLD.
 
 For particular settings, please see the master qiime2 script itself ('qiime2willcox_classic.sh')
+
+## Identification
+
+The BOLD_results.Rmd r-markdown file is provided. The script itself has its own documentation. It will take sequence table and send each to the BOLD website for identification.  The result is an unwieldy xlsx file, which requires manual curation.
