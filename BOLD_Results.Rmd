@@ -1,0 +1,129 @@
+---
+title: "BOLD Data Retrieval from Final OTU FASTA"
+author: "Robert W Murdoch"
+date: "14 November, 2019"
+output:
+  html_document:
+    highlight: haddock
+    keep_md: yes
+    theme: cosmo
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, eval=FALSE, message=FALSE)
+``` 
+
+This is an adaptation of a script by Timothy J Divol, Dec 14, 2018, customized to RWMurdoch's qiime2 pipeline output; the pipeline is described here: https://github.com/rwmurdoch/Co1_zeale_qiime2
+
+note that the remaining comments within the code-cells are from the original document, not by RWM. The original document has some unnecessary customization steps.
+
+## Data Import
+
+First, the final OTU sequence multifasta and converts through a few steps into a format that the "bold" package can accept:
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE}
+library(Biostrings)
+mydata.f <- readDNAStringSet("exports/dna-sequences.fasta")
+seq <- paste(mydata.f)
+name <- names(mydata.f)
+mydata <- data.frame(name,seq)
+
+head(mydata)
+
+names(mydata)[1] <- "seqID" ##add column names
+names(mydata)[2] <- "seqs"  
+
+head(mydata)   ##check that it worked
+
+mydata2 <- as.list(setNames(mydata$seqs, mydata$seqID))  #make sure headers are not capitalized
+```
+<br>
+
+## Taxonomy assignment via BOLD database
+
+####Use the **`bold_identify`** function to get sequences from the BOLD API. This will return all the matches in BOLD, which should also include sequences mined from GenBank (https://www.ncbi.nlm.nih.gov/genbank/).
+
+```{r, echo=TRUE}
+library('bold')
+
+output <- bold_identify(sequences = mydata2, db = "COX1", response=FALSE) ##This can take several hours to run
+```
+
+it appears that after this, many sequences remain unidentified, with no results.
+
+I don't know why this happens... first, we gather the result-less seqs and resubmit them
+
+```{r}
+test <- output
+names(test) <- mydata$seqID #bold package seems to strip the sedID's off; this adds them back on
+
+delete.NULLs  <-  function(x.list){   # delele null/empty entries in a list
+    x.list[unlist(lapply(x.list, length) != 0)]
+}
+
+retain.NULLs <- function(x.list){
+  x.list[unlist(lapply(x.list, length) == 0)]
+}
+  
+output.setA <- delete.NULLs(test) #this set has results
+temp.setB <- retain.NULLs(test) #this set does not
+mydata.setB <- mydata[mydata$seqID %in% names(temp.setB),] #this creates a corresponding sequence list, the seqs which were not identified
+```
+```{r}
+mydata2.setB <- as.list(setNames(mydata.setB$seqs, mydata.setB$seqID)) #this changes the seq data frame into list format, required by bold package
+output.setB <- bold_identify(sequences = mydata2.setB, db = "COX1", response=FALSE) # this missing ID data is resubmitted to bold
+```
+
+again, this sub-list of 52 unidentified seqs receive no identification;
+
+The reason that no identifications are provided seem to be that there is no match to database (I verfied with a handful of sequences)
+
+The pipeline is continued with ONLY the sequences that were identified
+
+
+
+## Limit output to user-defined number of matches
+
+Output is trimmed to the top 40 matches for each OTU; this number can vary depending on project objectives. In many cases there will be up to 100 matches for each OTU. Results mined from GenBank are only returned at the Order level and require further investigation. It is assume that trimming to the 40 top matches left enough sequences to resolve discrepancies while also removing extranneous results, ultimately making it easier to parse through each OTU and assign taxonomy.
+
+```{r, echo=TRUE}
+output.setA2 <- mapply(cbind, output.setA, OTU_name = names(output.setA), SIMPLIFY=F) #this adds the sequence name to each results table
+outtax40 <- lapply(output.setA2, head, n=40) 
+
+outtaxframe <- do.call("rbind", lapply(outtax40, data.frame))  #this turns the list of tables (one table for each sequence) to make a single giant table
+outtaxframe <- outtaxframe[c(11,1:10)] #reordering the columns so that OTU.name comes first
+```
+
+#### The **`outtaxframe`** returns the top 40 matches, by similarity, from the BOLD results.
+
+### Filter out Seqs by similarity % and unlikely by geography
+
+####This step not only filters out low percent similarity matches, but also helps with discrepancy resolution when several specimens from BOLD match one OTU at the same similarity.
+
+```{r, echo=TRUE, message=FALSE}
+#We used a custom header style for the final xlsx file
+
+#install.packages('openxlsx')
+
+library('openxlsx')     #Must have Rtools installed and check box to edit PATH or afterwards do: Sys.setenv("R_ZIPCMD" = "C:/Rtools/bin/zip.exe") ##path to zip.exe
+
+HS <- createStyle(fontSize=13, fontColour='navy', numFmt='GENERAL', halign='center', valign='center', textDecoration='bold', wrapText=TRUE)
+```
+
+
+```{r, echo=TRUE, message=FALSE}
+#install.packages('dplyr')
+
+library('dplyr')
+library('tibble')
+library('magrittr')
+
+outtaxframe %<>%     #This only keeps rows that we want and updates the dataframe
+	#rownames_to_column("seqID") %>%     
+	filter(specimen_country %in% c("United States", "Canada"), similarity >= 0.984)
+
+write.xlsx(outtaxframe, file='cprhd_191115.xlsx', asTable=FALSE, colNames=TRUE, rowNames=TRUE, headerStyle=HS)
+
+     #Might get an error if Rtools is not installed - follow error message suggestions to get Rtools
+```
